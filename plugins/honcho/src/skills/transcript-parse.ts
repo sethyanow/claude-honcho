@@ -37,7 +37,7 @@ function readLines(transcriptPath: string): string[] {
  * timestamp and the cwd/gitBranch for session mapping. Skips isMeta / isSidechain
  * / tool-result-only / harness-injected entries.
  */
-export function parseTranscriptForBackfill(transcriptPath: string): {
+export function parseTranscriptForBackfill(transcriptPath: string, skipPatterns: string[] = []): {
   messages: ParsedMessage[];
   cwd?: string;
   gitBranch?: string;
@@ -64,7 +64,7 @@ export function parseTranscriptForBackfill(transcriptPath: string): {
     const type = entryType(entry);
 
     if (type === "user") {
-      const content = userPromptText(entry);
+      const content = userPromptText(entry, skipPatterns);
       if (content !== null) {
         messages.push({ role: "user", content, timestamp: entry.timestamp, cwd: entry.cwd, gitBranch: entry.gitBranch });
       }

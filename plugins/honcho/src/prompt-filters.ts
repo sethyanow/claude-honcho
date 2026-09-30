@@ -39,13 +39,28 @@ export function stripLeadingReminders(prompt: string): string {
   return prompt.replace(LEADING_REMINDERS, "");
 }
 
+// `skipPatterns` come from a hand-edited config file, so a pattern that does
+// not compile is skipped rather than thrown.
+function matchesSkipPattern(text: string, skipPatterns: string[]): boolean {
+  return skipPatterns.some((source) => {
+    try {
+      return new RegExp(source).test(text);
+    } catch {
+      return false;
+    }
+  });
+}
+
 /**
  * The user's own words in `text`, without leading reminders, or null when
- * nothing typed remains or it matches a harness pattern.
+ * nothing typed remains or it matches a harness pattern or a configured
+ * `skipPatterns` entry.
  */
-export function userText(text: string): string | null {
+export function userText(text: string, skipPatterns: string[] = []): string | null {
   const trimmed = stripLeadingReminders(text).trim();
-  if (!trimmed || HARNESS_INJECTED_PATTERNS.some((p) => p.test(trimmed))) return null;
+  if (!trimmed || HARNESS_INJECTED_PATTERNS.some((p) => p.test(trimmed)) || matchesSkipPattern(trimmed, skipPatterns)) {
+    return null;
+  }
   return trimmed;
 }
 
@@ -76,7 +91,7 @@ export function entryText(entry: TranscriptEntry, separator = "\n"): string {
 }
 
 /** The typed prompt of a user transcript entry, or null for isMeta, tool-result and harness entries. */
-export function userPromptText(entry: TranscriptEntry): string | null {
+export function userPromptText(entry: TranscriptEntry, skipPatterns: string[] = []): string | null {
   if (entry.isMeta) return null;
-  return userText(entryText(entry));
+  return userText(entryText(entry), skipPatterns);
 }

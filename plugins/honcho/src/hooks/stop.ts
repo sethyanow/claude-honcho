@@ -45,6 +45,9 @@ function readTranscriptTurnBlocks(transcriptPath: string): TurnBlock[] {
   }
 
   // Walk back to the last real user prompt or wakeup — the start of the current segment.
+  // Configured skipPatterns do not apply here. A skipped prompt still starts a
+  // model turn, so it must end the previous segment, or that segment's blocks
+  // are uploaded again.
   let lastPromptIdx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     try {

@@ -168,7 +168,7 @@ export async function handleUserPrompt(): Promise<void> {
 
   // Skip trivial prompts — no context needed for "y", "ok", etc. Harness-injected
   // turns are excluded from storage; don't use them as retrieval queries either.
-  const userPrompt = userText(prompt);
+  const userPrompt = userText(prompt, config.skipPatterns);
   if (userPrompt === null || isLowSignal(userPrompt)) {
     logHook("user-prompt", "Skipping context (harness-injected or trivial prompt)");
     visSkipMessage("user-prompt", sessionLink ? `${sessionLink} · skipped` : "skipped");

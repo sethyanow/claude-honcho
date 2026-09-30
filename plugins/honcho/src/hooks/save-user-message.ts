@@ -54,7 +54,7 @@ export async function handleSaveUserMessage(): Promise<void> {
 
   setLogContext(cwd, sessionName);
 
-  const text = userText(prompt);
+  const text = userText(prompt, config.skipPatterns);
   if (text === null) {
     logHook("save-user-message", "Skipping upload (harness-injected content, not user input)");
     process.exit(0);

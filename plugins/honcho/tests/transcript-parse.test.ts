@@ -29,4 +29,13 @@ describe("parseTranscriptForBackfill", () => {
     const users = parseTranscriptForBackfill(path).messages.filter((m) => m.role === "user");
     expect(users.map((m) => m.content)).toEqual(["<div> renders twice, why?"]);
   });
+
+  test("drops user entries that match configured skipPatterns", () => {
+    const path = transcript([
+      { type: "user", message: { content: "You have 1 orchestration message. Run `orca orchestration check`" } },
+      { type: "user", message: { content: "do the thing" } },
+    ]);
+    const users = parseTranscriptForBackfill(path, ["^You have \\d+ orchestration message"]).messages.filter((m) => m.role === "user");
+    expect(users.map((m) => m.content)).toEqual(["do the thing"]);
+  });
 });

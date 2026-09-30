@@ -46,6 +46,34 @@ describe("userText", () => {
   });
 });
 
+describe("userText with skipPatterns", () => {
+  const orca = "You have 1 orchestration message. Run `orca orchestration check --terminal t1`";
+  const skip = ["^You have \\d+ orchestration messages?\\.", "^Another Claude session sent a message:"];
+
+  test("text matching a configured pattern is filtered", () => {
+    expect(userText(orca, skip)).toBeNull();
+    expect(userText("Another Claude session sent a message: <cross-session-message from=\"x\">hi</cross-session-message>", skip)).toBeNull();
+  });
+
+  test("patterns match the text after leading reminders", () => {
+    expect(userText(worktreeNotice + orca, skip)).toBeNull();
+  });
+
+  test("text that matches no pattern is kept", () => {
+    expect(userText("do the thing", skip)).toBe("do the thing");
+  });
+
+  test("a pattern that does not compile is skipped, the others still apply", () => {
+    expect(userText(orca, ["(", ...skip])).toBeNull();
+    expect(userText("do the thing", ["("])).toBe("do the thing");
+  });
+
+  test("repeated calls give the same result", () => {
+    expect(userText(orca, skip)).toBeNull();
+    expect(userText(orca, skip)).toBeNull();
+  });
+});
+
 describe("isLowSignal", () => {
   test("terse replies and slash commands are low signal", () => {
     expect(isLowSignal("ok")).toBe(true);
