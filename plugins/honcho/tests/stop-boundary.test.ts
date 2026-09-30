@@ -54,6 +54,18 @@ describe("getCurrentTurnAssistantMessages segment boundaries", () => {
     expect(getCurrentTurnAssistantMessages(path).map((b) => b.text)).toEqual(["narration A"]);
   });
 
+  test("typed prompt that starts with an unlisted tag starts the segment", () => {
+    const typed = { type: "user", message: { content: "<div> renders twice, why?" } };
+    const path = transcript([prompt, msgA, typed, msgB]);
+    expect(getCurrentTurnAssistantMessages(path).map((b) => b.text)).toEqual(["narration B"]);
+  });
+
+  test("harness-tagged user entries do not end the segment", () => {
+    const stdout = { type: "user", message: { content: "<local-command-stdout>done</local-command-stdout>" } };
+    const path = transcript([prompt, msgA, stdout, msgB]);
+    expect(getCurrentTurnAssistantMessages(path).map((b) => b.text)).toEqual(["narration A", "narration B"]);
+  });
+
   test("no prompt and no wakeup collects nothing", () => {
     const path = transcript([toolResult, msgA]);
     expect(getCurrentTurnAssistantMessages(path)).toEqual([]);

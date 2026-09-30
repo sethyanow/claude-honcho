@@ -5,23 +5,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { stripLeadingReminders } from "../prompt-filters.js";
-
-export interface TranscriptEntry {
-  type?: string;
-  role?: string;
-  timestamp?: string;
-  isMeta?: boolean;
-  isSidechain?: boolean;
-  cwd?: string;
-  gitBranch?: string;
-  sessionId?: string;
-  message?: {
-    role?: string;
-    content: string | Array<{ type: string; text?: string; name?: string; input?: unknown }>;
-  };
-  content?: string | Array<{ type: string; text?: string }>;
-}
+import { entryText, userPromptText, type TranscriptEntry } from "../prompt-filters.js";
 
 /** Ordered, cleaned message ready to upload. */
 export interface ParsedMessage {
@@ -39,34 +23,6 @@ function entryType(entry: TranscriptEntry): string | undefined {
   return entry.type || entry.role;
 }
 
-/** True for a real user-typed prompt. Excludes tool_results, isMeta entries, and `<...>` command caveats. */
-function isRealUserPrompt(entry: TranscriptEntry): boolean {
-  if (entry.isMeta) return false;
-  const mc = entry.message?.content ?? entry.content;
-  const text =
-    typeof mc === "string"
-      ? mc
-      : Array.isArray(mc)
-        ? mc.filter((b) => b.type === "text" && b.text).map((b) => b.text!).join("")
-        : "";
-  const trimmed = stripLeadingReminders(text).trim();
-  return trimmed.length > 0 && !trimmed.startsWith("<");
-}
-
-function userText(entry: TranscriptEntry): string {
-  const mc = entry.message?.content ?? entry.content;
-  if (typeof mc === "string") return mc;
-  if (Array.isArray(mc)) return mc.filter((p) => p.type === "text").map((p) => p.text || "").join("\n");
-  return "";
-}
-
-function assistantText(entry: TranscriptEntry): string {
-  const mc = entry.message?.content ?? entry.content;
-  if (typeof mc === "string") return mc;
-  if (Array.isArray(mc)) return mc.filter((p) => p.type === "text" && p.text).map((p) => p.text!).join("\n\n");
-  return "";
-}
-
 function readLines(transcriptPath: string): string[] {
   if (!transcriptPath || !existsSync(transcriptPath)) return [];
   try {
@@ -79,7 +35,7 @@ function readLines(transcriptPath: string): string[] {
 /**
  * Full-conversation parse: user + assistant messages in order, each with its
  * timestamp and the cwd/gitBranch for session mapping. Skips isMeta / isSidechain
- * / tool-result-only / `<...>` command caveats.
+ * / tool-result-only / harness-injected entries.
  */
 export function parseTranscriptForBackfill(transcriptPath: string): {
   messages: ParsedMessage[];
@@ -108,13 +64,12 @@ export function parseTranscriptForBackfill(transcriptPath: string): {
     const type = entryType(entry);
 
     if (type === "user") {
-      if (!isRealUserPrompt(entry)) continue;
-      const content = stripLeadingReminders(userText(entry)).trim();
-      if (content) {
+      const content = userPromptText(entry);
+      if (content !== null) {
         messages.push({ role: "user", content, timestamp: entry.timestamp, cwd: entry.cwd, gitBranch: entry.gitBranch });
       }
     } else if (type === "assistant") {
-      const content = assistantText(entry).trim();
+      const content = entryText(entry, "\n\n").trim();
       if (content) {
         messages.push({ role: "assistant", content, timestamp: entry.timestamp, cwd: entry.cwd, gitBranch: entry.gitBranch });
       }

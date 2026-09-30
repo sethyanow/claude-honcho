@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "fs";
 import { getInstanceIdForCwd, chunkContent, addMessagesBatched } from "../cache.js";
 import { logHook, logApiCall, setLogContext } from "../log.js";
 import { visStopMessage } from "../visual.js";
-import { stripLeadingReminders } from "../prompt-filters.js";
+import { entryText, userPromptText, type TranscriptEntry } from "../prompt-filters.js";
 
 interface HookInput {
   session_id?: string;
@@ -15,47 +15,10 @@ interface HookInput {
   last_assistant_message?: string;
 }
 
-interface TranscriptEntry {
-  type?: string;
-  role?: string;
-  timestamp?: string;
-  isMeta?: boolean;
-  promptSource?: string;
-  origin?: { kind?: string };
-  message?: {
-    role?: string;
-    content: string | Array<{ type: string; text?: string; name?: string; input?: any }>;
-  };
-  content?: string | Array<{ type: string; text?: string }>;
-}
-
 /** System-injected wakeup (task notification etc.). Not a real prompt, but the Stop
  *  hook already fired for everything before it, so it ends the previous segment. */
 function isWakeupBoundary(entry: TranscriptEntry): boolean {
   return entry.promptSource === "system" || entry.origin?.kind === "task-notification";
-}
-
-/** True for a real user-typed prompt. Excludes tool_results, isMeta entries, and `<...>` command caveats. */
-function isRealUserPrompt(entry: TranscriptEntry): boolean {
-  if (entry.isMeta) return false;
-  const mc = entry.message?.content ?? entry.content;
-  const text =
-    typeof mc === "string"
-      ? mc
-      : Array.isArray(mc)
-        ? mc.filter((b) => b.type === "text" && b.text).map((b) => b.text!).join("")
-        : "";
-  const trimmed = stripLeadingReminders(text).trim();
-  return trimmed.length > 0 && !trimmed.startsWith("<");
-}
-
-function assistantText(entry: TranscriptEntry): string {
-  const mc = entry.message?.content ?? entry.content;
-  if (typeof mc === "string") return mc;
-  if (Array.isArray(mc)) {
-    return mc.filter((p) => p.type === "text" && p.text).map((p) => p.text!).join("\n\n");
-  }
-  return "";
 }
 
 type TurnBlock = { text: string; timestamp?: string };
@@ -86,7 +49,7 @@ function readTranscriptTurnBlocks(transcriptPath: string): TurnBlock[] {
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const entry: TranscriptEntry = JSON.parse(lines[i]);
-      if ((entry.type || entry.role) === "user" && (isRealUserPrompt(entry) || isWakeupBoundary(entry))) {
+      if ((entry.type || entry.role) === "user" && (userPromptText(entry) !== null || isWakeupBoundary(entry))) {
         lastPromptIdx = i;
         break;
       }
@@ -102,7 +65,7 @@ function readTranscriptTurnBlocks(transcriptPath: string): TurnBlock[] {
     try {
       const entry: TranscriptEntry = JSON.parse(lines[i]);
       if ((entry.type || entry.role) !== "assistant") continue;
-      const text = assistantText(entry);
+      const text = entryText(entry, "\n\n");
       if (text && text.trim()) blocks.push({ text, timestamp: entry.timestamp });
     } catch {
       continue;

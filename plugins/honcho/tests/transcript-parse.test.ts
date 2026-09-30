@@ -19,4 +19,14 @@ describe("parseTranscriptForBackfill", () => {
     const users = parseTranscriptForBackfill(path).messages.filter((m) => m.role === "user");
     expect(users.map((m) => m.content)).toEqual(["do the thing"]);
   });
+
+  test("keeps a typed prompt that starts with an unlisted tag, drops harness tags", () => {
+    const path = transcript([
+      { type: "user", message: { content: "<command-name>/clear</command-name>" } },
+      { type: "user", message: { content: "<div> renders twice, why?" } },
+      { type: "user", message: { content: [{ type: "text", text: "<bash-stdout>ok</bash-stdout>" }] } },
+    ]);
+    const users = parseTranscriptForBackfill(path).messages.filter((m) => m.role === "user");
+    expect(users.map((m) => m.content)).toEqual(["<div> renders twice, why?"]);
+  });
 });
