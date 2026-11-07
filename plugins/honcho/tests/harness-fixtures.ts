@@ -45,6 +45,8 @@ export const configuredSkipPatterns = [
   "^FIRSTMATE SUPERVISION WAKE:",
   "^\\[SYSTEM NOTIFICATION - NOT USER INPUT\\]",
   "^Stop hook (feedback|blocking error)",
+  "^: Firstmate instruction waiting: read",
+  "^: Firstmate operational input waiting: read",
 ];
 
 export const skipPatternPrompts = [
@@ -59,4 +61,6 @@ export const skipPatternPrompts = [
   "Stop hook feedback:\nTests failed. Fix them before you stop.",
   "Stop hook blocking error from command: ./check.sh",
   `${attributedReminder}FIRSTMATE SUPERVISION WAKE: behind a reminder`,
+  ": Firstmate instruction waiting: read \"$FM_TASK_INBOX\"/*.msg then mv to handled/.",
+  ": Firstmate operational input waiting: read '/home/u/firstmate/state/operational-inbox/1.msg' and handle its contents as Firstmate operational input.",
 ];
