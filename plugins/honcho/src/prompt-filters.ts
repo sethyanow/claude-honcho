@@ -1,30 +1,33 @@
-// Decides what counts as the user's own input, for the UserPromptSubmit hooks
-// (raw prompt) and the transcript readers (Stop hook, import backfill).
+// Prompt classifiers shared by the prompt hooks and Stop's transcript parser.
+
+import { existsSync } from "fs";
 
 // Terse acknowledgements
-const TRIVIAL_REPLY_PATTERN = /^(yes|no|ok|sure|thanks|y|n|yep|nope|yeah|nah|continue|go ahead|do it|proceed)$/i;
+export const TRIVIAL_REPLY_PATTERN = /^(yes|no|ok|sure|thanks|y|n|yep|nope|yeah|nah|continue|go ahead|do it|proceed)$/i;
 
-const SLASH_COMMAND_PATTERN = /^\//;
-
-export function isTerseReply(text: string): boolean {
-  return TRIVIAL_REPLY_PATTERN.test(text.trim());
-}
-
-/** The user typed it, but it is not worth a memory lookup. */
-export function isLowSignal(text: string): boolean {
-  const trimmed = text.trim();
-  return TRIVIAL_REPLY_PATTERN.test(trimmed) || SLASH_COMMAND_PATTERN.test(trimmed);
+export function isTerseReply(prompt: string): boolean {
+  return TRIVIAL_REPLY_PATTERN.test(prompt.trim());
 }
 
 // Harness-injected turns that Claude Code delivers in the user-message slot but
 // the human never typed: background-task events, slash-command stdout, injected
 // system reminders.
 const HARNESS_INJECTED_PATTERNS = [
-  /^<task-notification>/,
+  /^<task-notification(?=[\s/>])/,
+  // Another Claude Code session's message (SendMessage), delivered in the user slot.
+  // It is that agent's text, not the human's.
+  /^<cross-session-message(?=[\s/>])/,
+  // Subagent hand-backs are also delivered as user turns. Require a tag-name
+  // delimiter, not \b (which would also match <agent-message-example>).
+  /^<agent-message(?=[\s/>])/,
+  // Keep known scaffold excluded when replay uses this classifier instead of
+  // rejecting all XML-looking user content.
+  /^<channel(?=[\s/>])/,
+  /^<local-command-caveat(?=[\s/>])/,
   /^<local-command-stdout>/,
   /^<command-name>/,
   /^<command-message>/,
-  /^<system-reminder>/,
+  /^<system-reminder(?=[\s/>])/,
   /^<bash-(stdout|stderr|input)>/,
   // `<<...>>` sentinels the runtime re-submits through the user slot and
   // resolves at fire time (e.g. <<autonomous-loop-dynamic>> from /loop wakeups)
@@ -33,65 +36,32 @@ const HARNESS_INJECTED_PATTERNS = [
 
 // Reminder blocks the harness prepends to a typed prompt (worktree notice,
 // background-task status); the user's text follows them.
-const LEADING_REMINDERS = /^(?:\s*<system-reminder>[\s\S]*?<\/system-reminder>)+\s*/;
+const LEADING_REMINDERS = /^(?:\s*<system-reminder(?=[\s>])[^>]*>[\s\S]*?<\/system-reminder>)+\s*/;
 
 export function stripLeadingReminders(prompt: string): string {
   return prompt.replace(LEADING_REMINDERS, "");
 }
 
-// `skipPatterns` come from a hand-edited config file, so a pattern that does
-// not compile is skipped rather than thrown.
-function matchesSkipPattern(text: string, skipPatterns: string[]): boolean {
-  return skipPatterns.some((source) => {
-    try {
-      return new RegExp(source).test(text);
-    } catch {
-      return false;
-    }
-  });
+// A typed slash command or skill invocation, recorded as
+// `<command-message>…</command-message> <command-name>/…</command-name>` (either tag first).
+const SLASH_COMMAND_ENVELOPE = /^<command-(name|message)>/;
+
+export function isHarnessInjected(prompt: string): boolean {
+  const trimmed = stripLeadingReminders(prompt).trim();
+  return !trimmed || HARNESS_INJECTED_PATTERNS.some((p) => p.test(trimmed));
 }
 
-/**
- * The user's own words in `text`, without leading reminders, or null when
- * nothing typed remains or it matches a harness pattern or a configured
- * `skipPatterns` entry.
- */
-export function userText(text: string, skipPatterns: string[] = []): string | null {
-  const trimmed = stripLeadingReminders(text).trim();
-  if (!trimmed || HARNESS_INJECTED_PATTERNS.some((p) => p.test(trimmed)) || matchesSkipPattern(trimmed, skipPatterns)) {
-    return null;
-  }
-  return trimmed;
-}
+// A slash command or skill invocation ("/compact", "/honcho:config", "/loop 5m
+// /foo"). A prompt that opens with an absolute path is not one, including a
+// single-component path such as "/tmp is missing": Claude Code sends that to
+// the model as text, so a name that exists at the filesystem root is a path.
+const SLASH_COMMAND = /^\/([\w:-]+)(?:\s|$)/;
 
-export interface TranscriptEntry {
-  type?: string;
-  role?: string;
-  timestamp?: string;
-  isMeta?: boolean;
-  isSidechain?: boolean;
-  promptSource?: string;
-  origin?: { kind?: string };
-  cwd?: string;
-  gitBranch?: string;
-  sessionId?: string;
-  message?: {
-    role?: string;
-    content: string | Array<{ type: string; text?: string; name?: string; input?: unknown }>;
-  };
-  content?: string | Array<{ type: string; text?: string }>;
-}
-
-/** Text blocks of a transcript entry. Tool results and other block types are dropped. */
-export function entryText(entry: TranscriptEntry, separator = "\n"): string {
-  const mc = entry.message?.content ?? entry.content;
-  if (typeof mc === "string") return mc;
-  if (Array.isArray(mc)) return mc.filter((b) => b.type === "text" && b.text).map((b) => b.text!).join(separator);
-  return "";
-}
-
-/** The typed prompt of a user transcript entry, or null for isMeta, tool-result and harness entries. */
-export function userPromptText(entry: TranscriptEntry, skipPatterns: string[] = []): string | null {
-  if (entry.isMeta) return null;
-  return userText(entryText(entry), skipPatterns);
+export function isSlashCommand(prompt: string): boolean {
+  const trimmed = stripLeadingReminders(prompt).trim();
+  // Stop sees transcript envelopes; UserPromptSubmit may see the raw command.
+  if (SLASH_COMMAND_ENVELOPE.test(trimmed)) return true;
+  const name = SLASH_COMMAND.exec(trimmed)?.[1];
+  if (!name) return false;
+  return name.includes(":") || !existsSync(`/${name}`);
 }

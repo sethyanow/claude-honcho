@@ -1,10 +1,10 @@
 import { Honcho, Session, Peer } from "@honcho-ai/sdk";
-import { initHook, loadConfig, getSessionForPath, getSessionName, getHonchoClientOptions, isPluginEnabled, getCachedStdin, readStdinText } from "../config.js";
+import { initHook, loadConfig, getSessionForPath, getSessionName, getHonchoClientOptions, isPluginEnabled, isLoggingEnabled, getCachedStdin, readStdinText } from "../config.js";
 import { existsSync, readFileSync } from "fs";
 import { getInstanceIdForCwd, chunkContent, addMessagesBatched } from "../cache.js";
 import { logHook, logApiCall, setLogContext } from "../log.js";
 import { visStopMessage } from "../visual.js";
-import { entryText, userPromptText, type TranscriptEntry } from "../prompt-filters.js";
+import { isHarnessInjected, isSlashCommand } from "../prompt-filters.js";
 
 interface HookInput {
   session_id?: string;
@@ -15,16 +15,60 @@ interface HookInput {
   last_assistant_message?: string;
 }
 
+interface TranscriptEntry {
+  type?: string;
+  role?: string;
+  timestamp?: string;
+  isMeta?: boolean;
+  promptSource?: string;
+  origin?: { kind?: string };
+  message?: {
+    role?: string;
+    content: string | Array<{ type: string; text?: string; name?: string; input?: any }>;
+  };
+  content?: string | Array<{ type: string; text?: string }>;
+}
+
 /** System-injected wakeup (task notification etc.). Not a real prompt, but the Stop
  *  hook already fired for everything before it, so it ends the previous segment. */
 function isWakeupBoundary(entry: TranscriptEntry): boolean {
   return entry.promptSource === "system" || entry.origin?.kind === "task-notification";
 }
 
+function userText(entry: TranscriptEntry): string {
+  const mc = entry.message?.content ?? entry.content;
+  if (typeof mc === "string") return mc;
+  if (Array.isArray(mc)) return mc.filter((b) => b.type === "text" && b.text).map((b) => b.text!).join("");
+  return "";
+}
+
+/** Same prompt classifier as the live hooks; literal XML is still user text. */
+function isRealUserPrompt(entry: TranscriptEntry): boolean {
+  if (entry.isMeta) return false;
+  const text = userText(entry);
+  return !isHarnessInjected(text) && !isSlashCommand(text);
+}
+
+/** Typed slash command or skill invocation. Not prompt text to upload, but it starts
+ *  a turn, so the previous turn's reply must not be collected again. Model-invoked
+ *  skills record the same tags with isMeta set and stay inside the current turn. */
+function isSlashCommandBoundary(entry: TranscriptEntry): boolean {
+  return !entry.isMeta && isSlashCommand(userText(entry));
+}
+
+function assistantText(entry: TranscriptEntry): string {
+  const mc = entry.message?.content ?? entry.content;
+  if (typeof mc === "string") return mc;
+  if (Array.isArray(mc)) {
+    return mc.filter((p) => p.type === "text" && p.text).map((p) => p.text!).join("\n\n");
+  }
+  return "";
+}
+
 type TurnBlock = { text: string; timestamp?: string };
 
 /** Assistant text blocks of the just-completed segment: everything since the last
- *  real user prompt OR wakeup boundary. Wakeup firings would otherwise re-collect
+ *  real user prompt, slash command, or wakeup boundary. Wakeup firings would otherwise re-collect
  *  the whole accumulated turn, duplicating blocks already uploaded. Stop can fire
  *  before the final assistant entry is flushed, so the payload's copy of it fills in. */
 export function getCurrentTurnAssistantMessages(transcriptPath: string, lastAssistantMessage?: string): TurnBlock[] {
@@ -44,15 +88,15 @@ function readTranscriptTurnBlocks(transcriptPath: string): TurnBlock[] {
     return [];
   }
 
-  // Walk back to the last real user prompt or wakeup — the start of the current segment.
-  // Configured skipPatterns do not apply here. A skipped prompt still starts a
-  // model turn, so it must end the previous segment, or that segment's blocks
-  // are uploaded again.
+  // Walk back to the last real user prompt, slash command, or wakeup — the start of the current segment.
   let lastPromptIdx = -1;
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const entry: TranscriptEntry = JSON.parse(lines[i]);
-      if ((entry.type || entry.role) === "user" && (userPromptText(entry) !== null || isWakeupBoundary(entry))) {
+      if (
+        (entry.type || entry.role) === "user" &&
+        (isRealUserPrompt(entry) || isSlashCommandBoundary(entry) || isWakeupBoundary(entry))
+      ) {
         lastPromptIdx = i;
         break;
       }
@@ -68,7 +112,7 @@ function readTranscriptTurnBlocks(transcriptPath: string): TurnBlock[] {
     try {
       const entry: TranscriptEntry = JSON.parse(lines[i]);
       if ((entry.type || entry.role) !== "assistant") continue;
-      const text = entryText(entry, "\n\n");
+      const text = assistantText(entry);
       if (text && text.trim()) blocks.push({ text, timestamp: entry.timestamp });
     } catch {
       continue;
@@ -157,9 +201,10 @@ export async function handleStop(): Promise<void> {
     });
 
     logHook("stop", `Saved ${turnMessages.length} assistant message(s)`);
-    visStopMessage("out", `saved ${turnMessages.length} assistant msg(s)`);
   } catch (error) {
     logHook("stop", `Upload failed: ${error}`, { error: String(error) });
+    const seeLog = isLoggingEnabled() ? " (see ~/.honcho/activity.log)" : "";
+    visStopMessage("warn", `upload failed, ${turnMessages.length} assistant msg(s) not saved${seeLog}`);
   }
 
   process.exit(0);

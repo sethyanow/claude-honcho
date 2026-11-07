@@ -2,7 +2,7 @@ import { Honcho, Session, Peer } from "@honcho-ai/sdk";
 import { initHook, loadConfig, getSessionName, getHonchoClientOptions, isPluginEnabled, getCachedStdin, readStdinText } from "../config.js";
 import { getInstanceIdForCwd, chunkContent, addMessagesBatched } from "../cache.js";
 import { logHook, logApiCall, setLogContext } from "../log.js";
-import { isTerseReply, userText } from "../prompt-filters.js";
+import { isHarnessInjected, isSlashCommand, isTerseReply, stripLeadingReminders } from "../prompt-filters.js";
 
 interface HookInput {
   prompt?: string;
@@ -54,14 +54,13 @@ export async function handleSaveUserMessage(): Promise<void> {
 
   setLogContext(cwd, sessionName);
 
-  const text = userText(prompt, config.skipPatterns);
-  if (text === null) {
-    logHook("save-user-message", "Skipping upload (harness-injected content, not user input)");
+  if (isHarnessInjected(prompt) || isSlashCommand(prompt)) {
+    logHook("save-user-message", "Skipping upload (slash command or harness-injected content)");
     process.exit(0);
   }
 
   try {
-    await postUserMessage(config, text, instanceId || undefined, sessionName);
+    await postUserMessage(config, stripLeadingReminders(prompt), instanceId || undefined, sessionName);
   } catch (e) {
     logHook("save-user-message", `Upload failed: ${e}`);
   }

@@ -81,15 +81,14 @@ export function groupIntoSessions(
   strategy: SessionStrategy,
   peerName: string | undefined,
   sessionPeerPrefix: boolean | undefined,
-  sessionOverrides: Record<string, string> = {},
-  skipPatterns: string[] = []
+  sessionOverrides: Record<string, string> = {}
 ): { groups: Map<string, SessionGroup>; parsed: number; empty: number } {
   const groups = new Map<string, SessionGroup>();
   let parsed = 0;
   let empty = 0;
 
   for (const { path } of transcripts) {
-    const { messages, cwd: tCwd, gitBranch: tBranch, sessionId } = parseTranscriptForBackfill(path, skipPatterns);
+    const { messages, cwd: tCwd, gitBranch: tBranch, sessionId } = parseTranscriptForBackfill(path);
     if (messages.length === 0) {
       empty++;
       continue;
@@ -168,8 +167,7 @@ export async function run(): Promise<void> {
     strategy,
     config.peerName,
     config.sessionPeerPrefix,
-    config.sessions ?? {},
-    config.skipPatterns
+    config.sessions ?? {}
   );
   const totalMessages = [...groups.values()].reduce((n, g) => n + g.messages.length, 0);
 

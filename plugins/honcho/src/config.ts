@@ -1,7 +1,7 @@
 import { homedir } from "os";
 import { join, basename, dirname, resolve, sep } from "path";
 import { fileURLToPath } from "url";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "fs";
 import { captureGitState } from "./git.js";
 import { getInstanceIdForCwd, getClaudeInstanceId } from "./cache.js";
 import { telemetryHeaders } from "@honcho-ai/harness-plugin-core";
@@ -306,8 +306,6 @@ interface HonchoFileConfig {
   endpoint?: HonchoEndpointConfig;
   /** Extra regex patterns redacted from tool summaries (additive to built-in defaults) */
   redactPatterns?: string[];
-  /** Extra regexes for harness text in the user slot. Matching text is not saved, recalled, or imported as the user's input. */
-  skipPatterns?: string[];
   enabled?: boolean;
   logging?: boolean;
   sessionStrategy?: SessionStrategy;
@@ -376,8 +374,6 @@ export interface HonchoCLAUDEConfig {
   endpoint?: HonchoEndpointConfig;
   /** Extra regex patterns redacted from tool summaries (additive to built-in defaults) */
   redactPatterns?: string[];
-  /** Extra regexes for harness text in the user slot. Matching text is not saved, recalled, or imported as the user's input. */
-  skipPatterns?: string[];
   /** Composable injection config (session-start + per-turn component menus) */
   injection?: InjectionConfig;
   /** Register the on-demand `honcho_remember` MCP tool (default: false).
@@ -519,7 +515,6 @@ function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoCLAUDECon
     contextRefresh: hostBlock?.contextRefresh ?? raw.contextRefresh,
     endpoint: hostBlock?.endpoint ?? raw.endpoint,
     redactPatterns: hostBlock?.redactPatterns ?? raw.redactPatterns,
-    skipPatterns: Array.isArray(raw.skipPatterns) ? raw.skipPatterns : undefined,
     injection: hostBlock?.injection ?? raw.injection,
     rememberTool: hostBlock?.rememberTool ?? raw.rememberTool,
     enabled: hostBlock?.enabled ?? raw.enabled,
@@ -594,6 +589,9 @@ function mergeWithEnvVars(config: HonchoCLAUDEConfig): HonchoCLAUDEConfig {
   if (process.env.HONCHO_LOGGING === "false") {
     config.logging = false;
   }
+  if (process.env.HONCHO_SAVE_MESSAGES === "false") {
+    config.saveMessages = false;
+  }
   if (process.env.HONCHO_SAVE_TOOL_USE !== undefined) {
     config.saveToolUse = process.env.HONCHO_SAVE_TOOL_USE === "true";
   }
@@ -601,6 +599,13 @@ function mergeWithEnvVars(config: HonchoCLAUDEConfig): HonchoCLAUDEConfig {
     config.saveGitEvents = process.env.HONCHO_SAVE_GIT_EVENTS === "true";
   }
   return config;
+}
+
+// config.json can hold an API key, so it is kept owner-only. The mode option
+// applies only on creation, so an existing file is restricted before the write.
+function writeConfigFile(data: unknown): void {
+  if (existsSync(CONFIG_FILE)) chmodSync(CONFIG_FILE, 0o600);
+  writeFileSync(CONFIG_FILE, JSON.stringify(data, null, 2), { mode: 0o600 });
 }
 
 /**
@@ -664,19 +669,22 @@ export function saveConfig(config: HonchoCLAUDEConfig): void {
   setHostIfExplicit("aiPeer", config.aiPeer, existing.aiPeer ?? DEFAULT_AI_PEER[host]);
 
   // Don't persist env-only overrides to the host block.
-  // mergeWithEnvVars() may have set enabled=false or logging=false from
-  // HONCHO_ENABLED / HONCHO_LOGGING env vars — those are runtime overrides
-  // that should not be materialized to disk.
+  // mergeWithEnvVars() may have set enabled, logging or saveMessages to false
+  // from HONCHO_ENABLED / HONCHO_LOGGING / HONCHO_SAVE_MESSAGES env vars —
+  // those are runtime overrides that should not be materialized to disk.
   const enabledForSave = process.env.HONCHO_ENABLED === "false" && config.enabled === false
     ? existingHost.enabled  // preserve what was on disk
     : config.enabled;
   const loggingForSave = process.env.HONCHO_LOGGING === "false" && config.logging === false
     ? existingHost.logging
     : config.logging;
+  const saveMessagesForSave = process.env.HONCHO_SAVE_MESSAGES === "false" && config.saveMessages === false
+    ? existingHost.saveMessages
+    : config.saveMessages;
 
   setHostIfExplicit("enabled", enabledForSave, existing.enabled);
   setHostIfExplicit("logging", loggingForSave, existing.logging);
-  setHostIfExplicit("saveMessages", config.saveMessages, existing.saveMessages);
+  setHostIfExplicit("saveMessages", saveMessagesForSave, existing.saveMessages);
   setHostIfExplicit("sessionStrategy", config.sessionStrategy, existing.sessionStrategy);
   setHostIfExplicit("sessionPeerPrefix", config.sessionPeerPrefix, existing.sessionPeerPrefix);
   setHostIfExplicit("reasoningLevel", config.reasoningLevel, existing.reasoningLevel);
@@ -697,7 +705,7 @@ export function saveConfig(config: HonchoCLAUDEConfig): void {
 
   existing.hosts[host] = hostEntry;
 
-  writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2));
+  writeConfigFile(existing);
 }
 
 /**
@@ -719,7 +727,7 @@ export function saveRootField(field: string, value: unknown): void {
   }
 
   existing[field] = value;
-  writeFileSync(CONFIG_FILE, JSON.stringify(existing, null, 2));
+  writeConfigFile(existing);
 }
 
 export function getClaudeSettingsPath(): string {
@@ -1003,6 +1011,11 @@ export function getHonchoClientOptions(config: HonchoCLAUDEConfig): HonchoClient
     maxRetries: 1,
     defaultHeaders: getTelemetryHeaders(),
   };
+}
+
+/** Whether the config targets the hosted production API. */
+export function isProductionEndpoint(config: HonchoCLAUDEConfig): boolean {
+  return getHonchoBaseUrl(config) === HONCHO_BASE_URLS.production;
 }
 
 export function getEndpointInfo(config: HonchoCLAUDEConfig): { type: string; url: string } {

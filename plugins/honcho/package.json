@@ -14,6 +14,10 @@
   ],
   "author": "Plastic Labs",
   "license": "MIT",
+  "scripts": {
+    "test": "bun test",
+    "e2e": "bun e2e/run.ts"
+  },
   "dependencies": {
     "@honcho-ai/harness-plugin-core": "^0.1.0",
     "@honcho-ai/sdk": "^2.1.0",

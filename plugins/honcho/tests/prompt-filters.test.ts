@@ -1,11 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { isLowSignal, stripLeadingReminders, userText } from "../src/prompt-filters";
+import { isHarnessInjected, isSlashCommand, stripLeadingReminders } from "../src/prompt-filters";
+
+import { attributedReminder, injectedPrompts, userPrompts } from "./harness-fixtures";
 
 const worktreeNotice =
   "<system-reminder>\nYou are operating in a git worktree.\nWorktree path: /tmp/wt\n</system-reminder>\n\n";
 const taskNotice = "<system-reminder>\nThe user started your suggested background task.\n</system-reminder>\n";
 
 describe("stripLeadingReminders", () => {
+  test.each(userPrompts)("preserves user text: $prompt", ({ prompt, text }) => {
+    expect(stripLeadingReminders(prompt)).toBe(text);
+  });
+
+  test("strips attributed reminders with quoted angle brackets", () => {
+    expect(stripLeadingReminders('<system-reminder note="a > b">notice</system-reminder>\nhello')).toBe("hello");
+  });
+
   test("removes a leading reminder and keeps the typed text", () => {
     expect(stripLeadingReminders(worktreeNotice + "is this resolved on main?")).toBe("is this resolved on main?");
   });
@@ -20,68 +30,80 @@ describe("stripLeadingReminders", () => {
   });
 });
 
-describe("userText", () => {
-  test("typed prompt behind a reminder is user input, without the reminder", () => {
-    expect(userText(worktreeNotice + "This live llm test failed")).toBe("This live llm test failed");
+describe("isHarnessInjected", () => {
+  test.each(injectedPrompts)("rejects harness envelope %p", (prompt) => {
+    expect(isHarnessInjected(prompt)).toBe(true);
   });
 
-  test("reminder with nothing after it is filtered", () => {
-    expect(userText(taskNotice)).toBeNull();
+  test.each(userPrompts)("accepts user text: $prompt", ({ prompt }) => {
+    expect(isHarnessInjected(prompt)).toBe(false);
   });
 
-  test("unclosed reminder is filtered", () => {
-    expect(userText("<system-reminder>\ntruncated")).toBeNull();
+  test("typed prompt behind a reminder is user input", () => {
+    expect(isHarnessInjected(worktreeNotice + "This live llm test failed")).toBe(false);
   });
 
-  test("other harness tags behind a reminder are still filtered", () => {
-    expect(userText(worktreeNotice + "<task-notification>done</task-notification>")).toBeNull();
+  test("reminder with nothing after it is harness-injected", () => {
+    expect(isHarnessInjected(taskNotice)).toBe(true);
+  });
+
+  test("unclosed reminder is harness-injected", () => {
+    expect(isHarnessInjected("<system-reminder>\ntruncated")).toBe(true);
+  });
+
+  test("other harness tags behind a reminder are still harness-injected", () => {
+    expect(isHarnessInjected(worktreeNotice + "<task-notification>done</task-notification>")).toBe(true);
   });
 
   test("plain prompt is user input", () => {
-    expect(userText("do the thing")).toBe("do the thing");
+    expect(isHarnessInjected("do the thing")).toBe(false);
   });
 
-  test("typed prompt that starts with an unlisted tag is user input", () => {
-    expect(userText("<div> renders twice, why?")).toBe("<div> renders twice, why?");
-  });
-});
+  const crossSession =
+    '<cross-session-message from="uds:/tmp/cc-socks/1234.sock" from-name="reviewer-session" from-mode="prompting">\n' +
+    "The user plans to merge PR #12 tonight.\n</cross-session-message>";
 
-describe("userText with skipPatterns", () => {
-  const orca = "You have 1 orchestration message. Run `orca orchestration check --terminal t1`";
-  const skip = ["^You have \\d+ orchestration messages?\\.", "^Another Claude session sent a message:"];
-
-  test("text matching a configured pattern is filtered", () => {
-    expect(userText(orca, skip)).toBeNull();
-    expect(userText("Another Claude session sent a message: <cross-session-message from=\"x\">hi</cross-session-message>", skip)).toBeNull();
+  test("cross-session message from another Claude Code session is harness-injected", () => {
+    expect(isHarnessInjected(crossSession)).toBe(true);
   });
 
-  test("patterns match the text after leading reminders", () => {
-    expect(userText(worktreeNotice + orca, skip)).toBeNull();
+  test("cross-session message behind a reminder is still harness-injected", () => {
+    expect(isHarnessInjected(worktreeNotice + crossSession)).toBe(true);
   });
 
-  test("text that matches no pattern is kept", () => {
-    expect(userText("do the thing", skip)).toBe("do the thing");
-  });
-
-  test("a pattern that does not compile is skipped, the others still apply", () => {
-    expect(userText(orca, ["(", ...skip])).toBeNull();
-    expect(userText("do the thing", ["("])).toBe("do the thing");
-  });
-
-  test("repeated calls give the same result", () => {
-    expect(userText(orca, skip)).toBeNull();
-    expect(userText(orca, skip)).toBeNull();
+  test("prompt that only mentions the tag is user input", () => {
+    expect(isHarnessInjected("why does <cross-session-message> show up in my memory?")).toBe(false);
   });
 });
 
-describe("isLowSignal", () => {
-  test("terse replies and slash commands are low signal", () => {
-    expect(isLowSignal("ok")).toBe(true);
-    expect(isLowSignal(" go ahead ")).toBe(true);
-    expect(isLowSignal("/honcho:status")).toBe(true);
+describe("isSlashCommand", () => {
+  test.each([
+    ["/compact", true],
+    [attributedReminder + "/honcho:status", true],
+    [attributedReminder + "/tmp is missing", false],
+    ["/honcho:config", true],
+    ["/loop 5m /foo", true],
+    [worktreeNotice + "/honcho:status", true],
+    ["/Users/me/app/src/index.ts is failing", false],
+    ["/foo.ts is broken", false],
+    ["/tmp is missing", false],
+    ["/etc", false],
+    ["fix the /api route", false],
+  ])("%p -> %p", (prompt, expected) => {
+    expect(isSlashCommand(prompt)).toBe(expected);
   });
 
-  test("a real question is not low signal", () => {
-    expect(isLowSignal("ok, why does the build fail?")).toBe(false);
+  test("matches either tag order", () => {
+    expect(isSlashCommand("<command-message>honcho:status</command-message>\n<command-name>/honcho:status</command-name>")).toBe(true);
+    expect(isSlashCommand("<command-name>/model</command-name>\n<command-message>model</command-message>")).toBe(true);
+  });
+
+  test("matches behind a leading reminder", () => {
+    expect(isSlashCommand(worktreeNotice + "<command-name>/honcho</command-name>")).toBe(true);
+  });
+
+  test("does not match command output or typed text", () => {
+    expect(isSlashCommand("<local-command-stdout>ok</local-command-stdout>")).toBe(false);
+    expect(isSlashCommand("what does <command-name> mean?")).toBe(false);
   });
 });

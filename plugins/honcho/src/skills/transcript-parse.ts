@@ -5,7 +5,23 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { homedir } from "os";
 import { join } from "path";
-import { entryText, userPromptText, type TranscriptEntry } from "../prompt-filters.js";
+import { isHarnessInjected, isSlashCommand, stripLeadingReminders } from "../prompt-filters.js";
+
+export interface TranscriptEntry {
+  type?: string;
+  role?: string;
+  timestamp?: string;
+  isMeta?: boolean;
+  isSidechain?: boolean;
+  cwd?: string;
+  gitBranch?: string;
+  sessionId?: string;
+  message?: {
+    role?: string;
+    content: string | Array<{ type: string; text?: string; name?: string; input?: unknown }>;
+  };
+  content?: string | Array<{ type: string; text?: string }>;
+}
 
 /** Ordered, cleaned message ready to upload. */
 export interface ParsedMessage {
@@ -23,6 +39,27 @@ function entryType(entry: TranscriptEntry): string | undefined {
   return entry.type || entry.role;
 }
 
+/** Same prompt classifier as the live hooks; literal XML is still user text. */
+function isRealUserPrompt(entry: TranscriptEntry): boolean {
+  if (entry.isMeta) return false;
+  const text = userText(entry);
+  return !isHarnessInjected(text) && !isSlashCommand(text);
+}
+
+function userText(entry: TranscriptEntry): string {
+  const mc = entry.message?.content ?? entry.content;
+  if (typeof mc === "string") return mc;
+  if (Array.isArray(mc)) return mc.filter((p) => p.type === "text").map((p) => p.text || "").join("\n");
+  return "";
+}
+
+function assistantText(entry: TranscriptEntry): string {
+  const mc = entry.message?.content ?? entry.content;
+  if (typeof mc === "string") return mc;
+  if (Array.isArray(mc)) return mc.filter((p) => p.type === "text" && p.text).map((p) => p.text!).join("\n\n");
+  return "";
+}
+
 function readLines(transcriptPath: string): string[] {
   if (!transcriptPath || !existsSync(transcriptPath)) return [];
   try {
@@ -35,9 +72,9 @@ function readLines(transcriptPath: string): string[] {
 /**
  * Full-conversation parse: user + assistant messages in order, each with its
  * timestamp and the cwd/gitBranch for session mapping. Skips isMeta / isSidechain
- * / tool-result-only / harness-injected entries.
+ * / tool-result-only / harness-injected turns / slash commands.
  */
-export function parseTranscriptForBackfill(transcriptPath: string, skipPatterns: string[] = []): {
+export function parseTranscriptForBackfill(transcriptPath: string): {
   messages: ParsedMessage[];
   cwd?: string;
   gitBranch?: string;
@@ -64,12 +101,13 @@ export function parseTranscriptForBackfill(transcriptPath: string, skipPatterns:
     const type = entryType(entry);
 
     if (type === "user") {
-      const content = userPromptText(entry, skipPatterns);
-      if (content !== null) {
+      if (!isRealUserPrompt(entry)) continue;
+      const content = stripLeadingReminders(userText(entry)).trim();
+      if (content) {
         messages.push({ role: "user", content, timestamp: entry.timestamp, cwd: entry.cwd, gitBranch: entry.gitBranch });
       }
     } else if (type === "assistant") {
-      const content = entryText(entry, "\n\n").trim();
+      const content = assistantText(entry).trim();
       if (content) {
         messages.push({ role: "assistant", content, timestamp: entry.timestamp, cwd: entry.cwd, gitBranch: entry.gitBranch });
       }
