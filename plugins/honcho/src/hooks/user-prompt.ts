@@ -77,7 +77,7 @@ function extractTopics(prompt: string): { topics: string[]; precise: boolean } {
 }
 
 /** Why retrieval is skipped for this prompt, or null to retrieve. */
-function skipReason(prompt: string, skipPatterns?: string[]): string | null {
+function skipReason(prompt: string, skipPatterns: string[] = []): string | null {
   if (isHarnessInjected(prompt, skipPatterns)) return "automated message";
   if (isSlashCommand(prompt)) return "slash command";
   if (isTerseReply(stripLeadingReminders(prompt))) return "short reply";

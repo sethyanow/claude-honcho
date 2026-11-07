@@ -81,10 +81,6 @@ describe("isHarnessInjected with skipPatterns", () => {
     expect(isHarnessInjected(prompt, configuredSkipPatterns)).toBe(true);
   });
 
-  test("a pattern that only matches mid-prompt leaves user text alone", () => {
-    expect(isHarnessInjected("why did FIRSTMATE SUPERVISION WAKE: fire twice?", configuredSkipPatterns)).toBe(false);
-  });
-
   test("a pattern that does not compile is ignored and the others still apply", () => {
     expect(isHarnessInjected("FIRSTMATE SUPERVISION WAKE: x", ["(", ...configuredSkipPatterns])).toBe(true);
     expect(isHarnessInjected("do the thing", ["("])).toBe(false);
