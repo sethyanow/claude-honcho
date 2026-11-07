@@ -519,7 +519,9 @@ function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoCLAUDECon
     contextRefresh: hostBlock?.contextRefresh ?? raw.contextRefresh,
     endpoint: hostBlock?.endpoint ?? raw.endpoint,
     redactPatterns: hostBlock?.redactPatterns ?? raw.redactPatterns,
-    skipPatterns: Array.isArray(raw.skipPatterns) ? raw.skipPatterns : undefined,
+    skipPatterns: Array.isArray(raw.skipPatterns)
+      ? raw.skipPatterns.filter((p): p is string => typeof p === "string")
+      : undefined,
     injection: hostBlock?.injection ?? raw.injection,
     rememberTool: hostBlock?.rememberTool ?? raw.rememberTool,
     enabled: hostBlock?.enabled ?? raw.enabled,
