@@ -77,8 +77,8 @@ function extractTopics(prompt: string): { topics: string[]; precise: boolean } {
 }
 
 /** Why retrieval is skipped for this prompt, or null to retrieve. */
-function skipReason(prompt: string): string | null {
-  if (isHarnessInjected(prompt)) return "automated message";
+function skipReason(prompt: string, skipPatterns: string[] = []): string | null {
+  if (isHarnessInjected(prompt, skipPatterns)) return "automated message";
   if (isSlashCommand(prompt)) return "slash command";
   if (isTerseReply(stripLeadingReminders(prompt))) return "short reply";
   return null;
@@ -177,7 +177,7 @@ export async function handleUserPrompt(): Promise<void> {
         : undefined;
 
   // No retrieval for slash commands, harness-injected turns, or "y", "ok", etc.
-  const skip = skipReason(prompt);
+  const skip = skipReason(prompt, config.skipPatterns);
   if (skip) {
     logHook("user-prompt", `Skipping context (${skip})`);
     visSkipMessage("user-prompt", skip, banner);

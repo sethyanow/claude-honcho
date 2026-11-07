@@ -40,10 +40,10 @@ function entryType(entry: TranscriptEntry): string | undefined {
 }
 
 /** Same prompt classifier as the live hooks; literal XML is still user text. */
-function isRealUserPrompt(entry: TranscriptEntry): boolean {
+function isRealUserPrompt(entry: TranscriptEntry, skipPatterns: string[]): boolean {
   if (entry.isMeta) return false;
   const text = userText(entry);
-  return !isHarnessInjected(text) && !isSlashCommand(text);
+  return !isHarnessInjected(text, skipPatterns) && !isSlashCommand(text);
 }
 
 function userText(entry: TranscriptEntry): string {
@@ -74,7 +74,7 @@ function readLines(transcriptPath: string): string[] {
  * timestamp and the cwd/gitBranch for session mapping. Skips isMeta / isSidechain
  * / tool-result-only / harness-injected turns / slash commands.
  */
-export function parseTranscriptForBackfill(transcriptPath: string): {
+export function parseTranscriptForBackfill(transcriptPath: string, skipPatterns: string[] = []): {
   messages: ParsedMessage[];
   cwd?: string;
   gitBranch?: string;
@@ -101,7 +101,7 @@ export function parseTranscriptForBackfill(transcriptPath: string): {
     const type = entryType(entry);
 
     if (type === "user") {
-      if (!isRealUserPrompt(entry)) continue;
+      if (!isRealUserPrompt(entry, skipPatterns)) continue;
       const content = stripLeadingReminders(userText(entry)).trim();
       if (content) {
         messages.push({ role: "user", content, timestamp: entry.timestamp, cwd: entry.cwd, gitBranch: entry.gitBranch });

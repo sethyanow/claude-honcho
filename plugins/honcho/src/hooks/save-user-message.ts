@@ -54,7 +54,7 @@ export async function handleSaveUserMessage(): Promise<void> {
 
   setLogContext(cwd, sessionName);
 
-  if (isHarnessInjected(prompt) || isSlashCommand(prompt)) {
+  if (isHarnessInjected(prompt, config.skipPatterns) || isSlashCommand(prompt)) {
     logHook("save-user-message", "Skipping upload (slash command or harness-injected content)");
     process.exit(0);
   }

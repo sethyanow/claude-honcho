@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { parseTranscriptForBackfill } from "../src/skills/transcript-parse";
-import { attributedReminder, injectedPrompts, userPrompts } from "./harness-fixtures";
+import { attributedReminder, configuredSkipPatterns, injectedPrompts, skipPatternPrompts, userPrompts } from "./harness-fixtures";
 
 function transcript(lines: object[]): string {
   const path = join(mkdtempSync(join(tmpdir(), "backfill-test-")), "t.jsonl");
@@ -42,5 +42,13 @@ describe("parseTranscriptForBackfill", () => {
     ]);
     const users = parseTranscriptForBackfill(path).messages.filter((m) => m.role === "user");
     expect(users.map((m) => m.content)).toEqual(["do the thing"]);
+  });
+
+  test("drops user entries that match configured skipPatterns", () => {
+    const path = transcript([
+      ...skipPatternPrompts.map((text) => ({ type: "user", message: { content: text } })),
+      ...userPrompts.map(({ prompt }) => ({ type: "user", message: { content: prompt } })),
+    ]);
+    expect(parseTranscriptForBackfill(path, configuredSkipPatterns).messages.map((m) => m.content)).toEqual(userPrompts.map((p) => p.text));
   });
 });

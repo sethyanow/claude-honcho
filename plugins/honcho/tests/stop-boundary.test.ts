@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { getCurrentTurnAssistantMessages } from "../src/hooks/stop";
-import { attributedReminder, injectedPrompts, userPrompts } from "./harness-fixtures";
+import { attributedReminder, injectedPrompts, skipPatternPrompts, userPrompts } from "./harness-fixtures";
 
 function transcript(lines: object[]): string {
   const path = join(mkdtempSync(join(tmpdir(), "stop-test-")), "t.jsonl");
@@ -31,6 +31,11 @@ describe("getCurrentTurnAssistantMessages segment boundaries", () => {
   test.each(injectedPrompts)("harness content alone is not a human turn: %p", (text) => {
     const path = transcript([{ type: "user", message: { content: text } }, msgA]);
     expect(getCurrentTurnAssistantMessages(path)).toEqual([]);
+  });
+
+  test.each(skipPatternPrompts)("text a skipPattern would drop still starts a segment: %p", (text) => {
+    const path = transcript([prompt, msgA, { type: "user", message: { content: text } }, msgB]);
+    expect(getCurrentTurnAssistantMessages(path).map((b) => b.text)).toEqual(["narration B"]);
   });
 
   test("attributed reminder followed by a slash command starts a segment", () => {
