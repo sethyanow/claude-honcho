@@ -306,6 +306,8 @@ interface HonchoFileConfig {
   endpoint?: HonchoEndpointConfig;
   /** Extra regex patterns redacted from tool summaries (additive to built-in defaults) */
   redactPatterns?: string[];
+  /** Extra regexes for harness text in the user slot. Matching text is not saved, recalled, or imported as the user's input. */
+  skipPatterns?: string[];
   enabled?: boolean;
   logging?: boolean;
   sessionStrategy?: SessionStrategy;
@@ -374,6 +376,8 @@ export interface HonchoCLAUDEConfig {
   endpoint?: HonchoEndpointConfig;
   /** Extra regex patterns redacted from tool summaries (additive to built-in defaults) */
   redactPatterns?: string[];
+  /** Extra regexes for harness text in the user slot. Matching text is not saved, recalled, or imported as the user's input. */
+  skipPatterns?: string[];
   /** Composable injection config (session-start + per-turn component menus) */
   injection?: InjectionConfig;
   /** Register the on-demand `honcho_remember` MCP tool (default: false).
@@ -515,6 +519,7 @@ function resolveConfig(raw: HonchoFileConfig, host: HonchoHost): HonchoCLAUDECon
     contextRefresh: hostBlock?.contextRefresh ?? raw.contextRefresh,
     endpoint: hostBlock?.endpoint ?? raw.endpoint,
     redactPatterns: hostBlock?.redactPatterns ?? raw.redactPatterns,
+    skipPatterns: Array.isArray(raw.skipPatterns) ? raw.skipPatterns : undefined,
     injection: hostBlock?.injection ?? raw.injection,
     rememberTool: hostBlock?.rememberTool ?? raw.rememberTool,
     enabled: hostBlock?.enabled ?? raw.enabled,

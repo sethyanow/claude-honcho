@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { isHarnessInjected, isSlashCommand, stripLeadingReminders } from "../src/prompt-filters";
 
-import { attributedReminder, injectedPrompts, userPrompts } from "./harness-fixtures";
+import { attributedReminder, configuredSkipPatterns, injectedPrompts, skipPatternPrompts, userPrompts } from "./harness-fixtures";
 
 const worktreeNotice =
   "<system-reminder>\nYou are operating in a git worktree.\nWorktree path: /tmp/wt\n</system-reminder>\n\n";
@@ -73,6 +73,21 @@ describe("isHarnessInjected", () => {
 
   test("prompt that only mentions the tag is user input", () => {
     expect(isHarnessInjected("why does <cross-session-message> show up in my memory?")).toBe(false);
+  });
+});
+
+describe("isHarnessInjected with skipPatterns", () => {
+  test.each(skipPatternPrompts)("rejects text a configured pattern matches: %p", (prompt) => {
+    expect(isHarnessInjected(prompt, configuredSkipPatterns)).toBe(true);
+  });
+
+  test("a pattern that only matches mid-prompt leaves user text alone", () => {
+    expect(isHarnessInjected("why did FIRSTMATE SUPERVISION WAKE: fire twice?", configuredSkipPatterns)).toBe(false);
+  });
+
+  test("a pattern that does not compile is ignored and the others still apply", () => {
+    expect(isHarnessInjected("FIRSTMATE SUPERVISION WAKE: x", ["(", ...configuredSkipPatterns])).toBe(true);
+    expect(isHarnessInjected("do the thing", ["("])).toBe(false);
   });
 });
 

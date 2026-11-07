@@ -35,3 +35,28 @@ export const userPrompts = [
   { prompt: '<cross-session-message-example>Keep this tag.</cross-session-message-example>', text: '<cross-session-message-example>Keep this tag.</cross-session-message-example>' },
   { prompt: '<channel-example>Keep this tag.</channel-example>', text: '<channel-example>Keep this tag.</channel-example>' },
 ];
+
+// A user's skipPatterns as written in config.json, with one sample prompt each.
+export const configuredSkipPatterns = [
+  "^You have \\d+ orchestration messages?\\b",
+  "^Another Claude session sent a message:",
+  "^⁣?FIRSTMATE_OP:",
+  "^MAIN DIALOG MIRROR\\b",
+  "^FIRSTMATE SUPERVISION WAKE:",
+  "^\\[SYSTEM NOTIFICATION - NOT USER INPUT\\]",
+  "^Stop hook (feedback|blocking error)",
+];
+
+export const skipPatternPrompts = [
+  "You have 1 orchestration message. Run `orca orchestration check --terminal t1`",
+  "You have 3 orchestration messages. Run `orca orchestration check --terminal t1`",
+  'Another Claude session sent a message: <cross-session-message from="reviewer">Done.</cross-session-message>',
+  "⁣FIRSTMATE_OP: v1 launch-brief: # Task",
+  "FIRSTMATE_OP: v1 wake: read the inbox",
+  "MAIN DIALOG MIRROR (read-only copy of the captain's chat)",
+  "FIRSTMATE SUPERVISION WAKE: worker status changed",
+  "[SYSTEM NOTIFICATION - NOT USER INPUT] Background job finished.",
+  "Stop hook feedback:\nTests failed. Fix them before you stop.",
+  "Stop hook blocking error from command: ./check.sh",
+  `${attributedReminder}FIRSTMATE SUPERVISION WAKE: behind a reminder`,
+];

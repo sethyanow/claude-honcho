@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { injectedPrompts, userPrompts } from "./harness-fixtures";
+import { configuredSkipPatterns, injectedPrompts, skipPatternPrompts, userPrompts } from "./harness-fixtures";
 
 describe("UserPromptSubmit hooks", () => {
   test("save and recall only genuine user text", async () => {
@@ -36,6 +36,7 @@ describe("UserPromptSubmit hooks", () => {
         workspace: "test",
         endpoint: { baseUrl: `http://127.0.0.1:${server.port}` },
         injection: { perTurn: ["userContext"], searchQuerySource: "prompt" },
+        skipPatterns: configuredSkipPatterns,
       }));
       const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HONCHO_") && !key.startsWith("CLAUDE_")));
       const invoke = async (hook: string, prompt: string) => {
@@ -51,7 +52,7 @@ describe("UserPromptSubmit hooks", () => {
         expect(code).toBe(0);
       };
       for (const hook of ["save-user-message", "user-prompt"]) {
-        for (const prompt of injectedPrompts) await invoke(hook, prompt);
+        for (const prompt of [...injectedPrompts, ...skipPatternPrompts]) await invoke(hook, prompt);
       }
       expect(requests).toEqual([]);
       for (const { prompt } of userPrompts) {

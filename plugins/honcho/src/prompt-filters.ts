@@ -46,9 +46,22 @@ export function stripLeadingReminders(prompt: string): string {
 // `<command-message>…</command-message> <command-name>/…</command-name>` (either tag first).
 const SLASH_COMMAND_ENVELOPE = /^<command-(name|message)>/;
 
-export function isHarnessInjected(prompt: string): boolean {
+// `skipPatterns` come from a hand-edited config file, so a pattern that does
+// not compile is ignored rather than thrown.
+function matchesSkipPattern(text: string, skipPatterns: string[]): boolean {
+  return skipPatterns.some((source) => {
+    try {
+      return new RegExp(source).test(text);
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** `skipPatterns` are the config regexes for harness text that has no known envelope. */
+export function isHarnessInjected(prompt: string, skipPatterns: string[] = []): boolean {
   const trimmed = stripLeadingReminders(prompt).trim();
-  return !trimmed || HARNESS_INJECTED_PATTERNS.some((p) => p.test(trimmed));
+  return !trimmed || HARNESS_INJECTED_PATTERNS.some((p) => p.test(trimmed)) || matchesSkipPattern(trimmed, skipPatterns);
 }
 
 // A slash command or skill invocation ("/compact", "/honcho:config", "/loop 5m

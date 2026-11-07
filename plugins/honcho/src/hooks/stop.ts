@@ -42,7 +42,9 @@ function userText(entry: TranscriptEntry): string {
   return "";
 }
 
-/** Same prompt classifier as the live hooks; literal XML is still user text. */
+/** Same prompt classifier as the live hooks; literal XML is still user text.
+ *  Configured skipPatterns do not apply here. A skipped prompt still starts a
+ *  model turn, so it must end the previous segment, or that segment is uploaded again. */
 function isRealUserPrompt(entry: TranscriptEntry): boolean {
   if (entry.isMeta) return false;
   const text = userText(entry);
