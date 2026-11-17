@@ -60,6 +60,7 @@ jobs:
         run: bash scripts/smoke.sh .stage
 
       - name: Publish dist branch
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
