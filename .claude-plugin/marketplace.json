@@ -1,0 +1,16 @@
+{
+  "name": "honcho",
+  "owner": {
+    "name": "Plastic Labs",
+    "email": "hello@plasticlabs.ai"
+  },
+  "metadata": {
+    "description": "Persistent memory for Claude Code sessions using Honcho"
+  },
+  "plugins": [
+    {
+      "name": "honcho",
+      "source": "."
+    }
+  ]
+}
