@@ -72,6 +72,12 @@ jobs:
           GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
           export GIT_CONFIG_VALUE_0
 
+          MAIN_HEAD="$(git -C "$WORK" ls-remote origin refs/heads/main | cut -f1)"
+          if [ "$MAIN_HEAD" != "$GITHUB_SHA" ]; then
+            echo "::notice::run is for ${GITHUB_SHA:0:12}; main is at ${MAIN_HEAD:0:12}; skipping publication"
+            exit 0
+          fi
+
           # Only a confirmed missing branch may start a new history.
           set +e
           git -C "$WORK" ls-remote --exit-code --heads origin refs/heads/dist > /dev/null
