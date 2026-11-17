@@ -1,0 +1,99 @@
+name: Dist branch
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: dist-branch
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: plugins/honcho
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ^22.22.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build release stage
+        run: bun run scripts/build.ts
+
+      - name: Prepare marketplace
+        run: |
+          jq 'del(.version)' .stage/.claude-plugin/plugin.json > .stage/.claude-plugin/plugin.json.tmp
+          mv .stage/.claude-plugin/plugin.json.tmp .stage/.claude-plugin/plugin.json
+          jq '{name: "honcho", owner, metadata: {description: "Persistent memory for Claude Code sessions using Honcho"}, plugins: [{name: "honcho", source: "."}]}' \
+            ../../.claude-plugin/marketplace.json > .stage/.claude-plugin/marketplace.json
+
+      - name: Validate staged marketplace
+        run: |
+          npm install -g @anthropic-ai/claude-code@2.1.325
+          # Missing-version warnings are intentional: updates track commits.
+          claude plugin validate .stage
+          CHECK_DATA="$(mktemp -d)"
+          CLAUDE_PLUGIN_ROOT="$PWD/.stage" CLAUDE_PLUGIN_DATA="$CHECK_DATA" \
+            bash .stage/scripts/check-version.sh > "$CHECK_DATA/output" 2>&1
+          test ! -s "$CHECK_DATA/output"
+          test ! -e "$CHECK_DATA/.version-stale"
+
+      - name: Smoke test bundled entry points
+        run: bash scripts/smoke.sh .stage
+
+      - name: Publish dist branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          WORK="$(mktemp -d)"
+          git init -q -b dist "$WORK"
+          git -C "$WORK" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C "$WORK" config push.default current
+          export GIT_CONFIG_COUNT=1
+          export GIT_CONFIG_KEY_0=http.https://github.com/.extraheader
+          GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          export GIT_CONFIG_VALUE_0
+
+          # Only a confirmed missing branch may start a new history.
+          set +e
+          git -C "$WORK" ls-remote --exit-code --heads origin refs/heads/dist > /dev/null
+          BRANCH_STATUS=$?
+          set -e
+          case "$BRANCH_STATUS" in
+            0)
+              git -C "$WORK" fetch --depth=1 origin dist
+              git -C "$WORK" reset --soft FETCH_HEAD
+              ;;
+            2) ;;
+            *) exit "$BRANCH_STATUS" ;;
+          esac
+
+          # The empty index replaces the whole tree, including removed files.
+          cp -R .stage/. "$WORK/"
+          git -C "$WORK" add -- .claude-plugin README.md LICENSE package.json mcp-servers.json dist hooks scripts skills
+          if git -C "$WORK" diff --cached --quiet; then
+            echo "::notice::dist is unchanged"
+            exit 0
+          fi
+          git -C "$WORK" config user.name "github-actions[bot]"
+          git -C "$WORK" config user.email "github-actions[bot]@users.noreply.github.com"
+          git -C "$WORK" commit -m "build: publish ${GITHUB_SHA:0:12}"
+          git -C "$WORK" push
